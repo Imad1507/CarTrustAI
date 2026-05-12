@@ -1,7 +1,6 @@
 // frontend/src/pages/Sale.jsx
 import React, { useState } from 'react';
-import { detectCar } from '../api';
-
+import { detectCar, detectDamage } from '../api';
 const Sale = () => {
   const [formData, setFormData] = useState({
     fullName: '',
@@ -21,6 +20,7 @@ const Sale = () => {
 
   const [images, setImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
+  const [damageResults, setDamageResults] = useState([]);
   const [checkingImages, setCheckingImages] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -32,52 +32,73 @@ const Sale = () => {
   };
 
   const handleImageUpload = async (files) => {
-    const fileArr = Array.from(files);
-    if (fileArr.length + images.length > 6) {
-      setMessage({ type: 'error', text: 'Maximum 6 images allowed' });
-      return;
-    }
-    setCheckingImages(true);
-    setMessage({ type: '', text: '' });
-    const validImages = [], validPreviews = [], invalidImages = [];
+  const fileArr = Array.from(files);
+  if (fileArr.length + images.length > 6) {
+    setMessage({ type: 'error', text: 'Maximum 6 images allowed' });
+    return;
+  }
+  setCheckingImages(true);
+  setMessage({ type: '', text: '' });
 
-    for (const file of fileArr) {
-      try {
-        const result = await detectCar(file);
-        if (result.is_car === true || result.isCar === true) {
-          validImages.push(file);
-          validPreviews.push(URL.createObjectURL(file));
-        } else {
-          invalidImages.push(file.name);
-        }
-      } catch {
+  const validImages = [], validPreviews = [], invalidImages = [];
+  const newDamageResults = [];
+
+  for (const file of fileArr) {
+    try {
+      // Step 1 — هل هي سيارة؟
+      const carResult = await detectCar(file);
+      if (carResult.is_car === true || carResult.isCar === true) {
+
+        // Step 2 — هل فيها ضرر؟
+        const damageResult = await detectDamage(file);
+        newDamageResults.push({
+          name: file.name,
+          isDamaged: damageResult.isDamaged,
+          confidence: damageResult.confidence
+        });
+
+        validImages.push(file);
+        validPreviews.push(URL.createObjectURL(file));
+      } else {
         invalidImages.push(file.name);
       }
+    } catch {
+      invalidImages.push(file.name);
     }
+  }
 
-    setCheckingImages(false);
-    if (invalidImages.length > 0) {
-      setMessage({ type: 'error', text: `Not car images: ${invalidImages.join(', ')}` });
-      setTimeout(() => setMessage({ type: '', text: '' }), 5000);
-    }
-    if (validImages.length > 0) {
-      setImages(prev => [...prev, ...validImages]);
-      setImagePreviews(prev => [...prev, ...validPreviews]);
-      setMessage({ type: 'success', text: `${validImages.length} car image(s) verified` });
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    }
-  };
+  setCheckingImages(false);
+  setDamageResults(prev => [...prev, ...newDamageResults]);
 
+  if (invalidImages.length > 0) {
+    setMessage({ type: 'error', text: `Not car images: ${invalidImages.join(', ')}` });
+    setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+  }
+  if (validImages.length > 0) {
+    setImages(prev => [...prev, ...validImages]);
+    setImagePreviews(prev => [...prev, ...validPreviews]);
+
+    // رسالة تشمل نتيجة الضرر
+    const damagedCount = newDamageResults.filter(r => r.isDamaged).length;
+    const wholeCount   = newDamageResults.filter(r => !r.isDamaged).length;
+    let msg = `${validImages.length} car image(s) verified`;
+    if (damagedCount > 0) msg += ` · ${damagedCount} damaged`;
+    if (wholeCount > 0)   msg += ` · ${wholeCount} intact`;
+
+    setMessage({ type: 'success', text: msg });
+    setTimeout(() => setMessage({ type: '', text: '' }), 4000);
+  }
+};
   const handleFileInput = (e) => {
     handleImageUpload(e.target.files);
     e.target.value = '';
   };
 
-  const removeImage = (index) => {
-    setImages(images.filter((_, i) => i !== index));
-    setImagePreviews(imagePreviews.filter((_, i) => i !== index));
-  };
-
+const removeImage = (index) => {
+  setImages(images.filter((_, i) => i !== index));
+  setImagePreviews(imagePreviews.filter((_, i) => i !== index));
+  setDamageResults(damageResults.filter((_, i) => i !== index));
+};
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (images.length === 0) {
@@ -320,17 +341,24 @@ const Sale = () => {
                 </div>
                 <div className="sl-pips-label">{images.length}/6 IMAGES</div>
 
-                {imagePreviews.length > 0 && (
-                  <div className="sl-previews">
-                    {imagePreviews.map((src, i) => (
-                      <div key={i} className="sl-preview">
-                        <img src={src} alt={`preview ${i}`} />
-                        <button type="button" className="sl-preview-rm" onClick={() => removeImage(i)}>✕</button>
-                        <span className="sl-preview-num">0{i + 1}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+{imagePreviews.map((src, i) => (
+  <div key={i} className="sl-preview">
+    <img src={src} alt={`preview ${i}`} />
+    <button type="button" className="sl-preview-rm" onClick={() => removeImage(i)}>✕</button>
+    <span className="sl-preview-num">0{i + 1}</span>
+    {/* Badge الضرر */}
+    {damageResults[i] && (
+      <span style={{
+        position: 'absolute', top: 3, left: 3,
+        background: damageResults[i].isDamaged ? 'rgba(139,0,0,0.85)' : 'rgba(0,100,50,0.85)',
+        color: '#fff', fontSize: '0.4rem', padding: '2px 4px',
+        fontFamily: 'Space Mono, monospace', letterSpacing: '0.05em'
+      }}>
+        {damageResults[i].isDamaged ? '⚠ DMG' : '✓ OK'}
+      </span>
+    )}
+  </div>
+))}
               </div>
 
               {/* Description */}

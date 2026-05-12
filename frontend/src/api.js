@@ -31,7 +31,23 @@ export const addCarWithImages = async (formData, token) => {
   });
   return response.json();
 };
+// دالة التحقق من الضرر
+export const detectDamage = async (imageFile) => {
+  const formData = new FormData();
+  formData.append('image', imageFile);
 
+  try {
+    const response = await fetch('http://localhost:5001/predict-damage', {
+      method: 'POST',
+      body: formData,
+    });
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error detecting damage:', error);
+    return { isDamaged: null, error: true };
+  }
+};
 // الدالة القديمة للبيانات بدون صور (إذا احتجتها)
 export const addCar = async (carData, token) => {
   const response = await fetch(`${API_URL}/admin/add-car`, {
